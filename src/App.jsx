@@ -167,7 +167,7 @@ Return ONLY a JSON object (no markdown, no explanation) with this exact structur
   "conjugations": null or {"present":["m.sg","f.sg","m.pl","f.pl"],"past":["1sg","2msg","3msg","3fsg"],"future":["1sg","2msg","3msg","3fsg"]}
 }`;
 
-  const res = await fetch("http://localhost:3001/api/lookup", {
+  const res = await fetch("/api/lookup", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
