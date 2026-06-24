@@ -714,7 +714,13 @@ useEffect(() => {
   
   const handleSignIn = async () => {
     try {
-      await signInWithPopup(auth, googleProvider);
+      const result = await signInWithPopup(auth, googleProvider);
+      const allowedEmails = ["davidoh4242@gmail.com", "miron.alexandrra@gmail.com"];
+      if (!allowedEmails.includes(result.user.email)) {
+        await signOut(auth);
+        alert("Access denied. This app is private.");
+        return;
+      }
     } catch (err) {
       console.error("Sign in failed:", err);
     }
