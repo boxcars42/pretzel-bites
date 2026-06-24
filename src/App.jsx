@@ -712,26 +712,44 @@ useEffect(() => {
   const border = dark ? "#1e2c26" : "#e5e0d8";
   const sage = dark ? "#6baf96" : "#5b8c7a";
   
-  // Sign in handle
   const handleSignIn = async () => {
-  try {
-    await signInWithPopup(auth, googleProvider);
-  } catch (err) {
-    console.error("Sign in failed:", err);
-  }
-};
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (err) {
+      console.error("Sign in failed:", err);
+    }
+  };
 
-const handleSignOut = async () => {
-  await signOut(auth);
-};
+  const handleSignOut = async () => {
+    await signOut(auth);
+  };
 
-if (authLoading) return (
-  <div style={{ minHeight: "100vh", background: bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
-    <div style={{ fontFamily: "'Frank Ruhl Libre', serif", fontSize: 48, color: sage }}>🥨</div>
-  </div>
-);
+  if (authLoading) return (
+    <div style={{ minHeight: "100vh", background: bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ fontFamily: "'Frank Ruhl Libre', serif", fontSize: 48, color: sage }}>🥨</div>
+    </div>
+  );
 
-return (
+  if (!user) return (
+    <div style={{ minHeight: "100vh", background: bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 24 }}>
+      <link href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@400;700;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+      <img src={`data:image/png;base64,${PRETZEL_B64}`} width={80} height={80} alt="logo" />
+      <div style={{ fontFamily: "'Frank Ruhl Libre', serif", fontSize: 42, fontWeight: 700, color: text }}>Pretzel Bites</div>
+      <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 16, color: subtle }}>Your Hebrew vocabulary companion</div>
+      <button onClick={handleSignIn} style={{
+        display: "flex", alignItems: "center", gap: 12,
+        background: "#ffffff", border: "1.5px solid #e0dbd4",
+        borderRadius: 12, padding: "14px 24px", cursor: "pointer",
+        fontFamily: "'Inter', sans-serif", fontSize: 16, fontWeight: 600,
+        color: "#1c1c1e", boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+      }}>
+        <img src="https://www.google.com/favicon.ico" width={20} height={20} alt="Google" />
+        Continue with Google
+      </button>
+    </div>
+  );
+
+  return (
     <div style={{ minHeight: "100vh", background: bg, color: text, fontFamily: "'Inter', sans-serif", transition: "background 0.3s, color 0.3s" }}>
       <link href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@400;700;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
 
