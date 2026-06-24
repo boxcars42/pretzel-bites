@@ -54,7 +54,7 @@ Built specifically for **Olim Hadashim** — new immigrants to Israel who are st
 
 ```bash
 # Clone the repo
-git clone https://github.com/YOUR_USERNAME/pretzel-bites.git
+git clone https://github.com/boxcars42/pretzel-bites.git
 cd pretzel-bites
 
 # Install dependencies
