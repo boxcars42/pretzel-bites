@@ -139,6 +139,11 @@ const LEVELS = ["Alef", "Bet", "Gimel", "Sabra", "בן/בת ארץ"];
 const XP_PER_LEVEL = 200;
 const TAGS = ["💬 Small talk","🛒 Supermarket","🏥 Medical","🏦 Bank","🚌 Transport","📚 University"];
 
+// David and Alexandra share one word bank / XP / streak / confidence now,
+// instead of each having their own. Every read and write below points at
+// this fixed path instead of the signed-in user's own uid.
+const BANK_UID = "shared-bank";
+
 function xpToLevel(xp) {
   const lvl = Math.min(Math.floor(xp / XP_PER_LEVEL), LEVELS.length - 1);
   return { level: LEVELS[lvl], progress: (xp % XP_PER_LEVEL) / XP_PER_LEVEL * 100, xp };
@@ -152,9 +157,12 @@ Return ONLY a JSON object (no markdown, no explanation) with this exact structur
 {
   "hebrew": "the word in Hebrew with nikud if possible",
   "transliteration": "romanized pronunciation",
-  "root": "3-letter root or — if noun/adverb",
-  "binyan": "binyan name in Hebrew or — if not a verb",
+  "root": "2-4 letter Hebrew root (שורש) written like ס-כ-מ, for nouns AND verbs — use — only if the word truly has no root (loanword, particle, adverb)",
+  "binyan": "binyan name in Hebrew (e.g. פָּעַל, פִּיעֵל, הִפְעִיל, נִפְעַל, הִתְפַּעֵל, פֻּעַל, הֻפְעַל) or — if not a verb",
+  "mishkal": "the noun/adjective's mishkal (morphological pattern) in Hebrew, e.g. קַטְלָן, מִקְטָלָה, or — if not a noun/adjective or unclear",
   "pos": "part of speech in Hebrew (פועל/שם עצם/תואר/etc)",
+  "prepositions": "fixed preposition(s) this verb takes with example, e.g. 'מתעניין ב-' or — if not a verb or none",
+  "grammarNote": "one short English sentence on how this word is used grammatically",
   "en": "English definition",
   "ru": "Russian definition",
   "examples": [
@@ -178,6 +186,51 @@ Return ONLY a JSON object (no markdown, no explanation) with this exact structur
   });
   const data = await res.json();
   console.log("API response:", JSON.stringify(data));
+  const text = data.content?.find(b => b.type === "text")?.text || "";
+  const clean = text.replace(/```json|```/g, "").trim();
+  return JSON.parse(clean);
+}
+
+// ── AI: on-demand "Learn More" info ──────────────────────────────────────────
+async function lookupLearnMore(word) {
+  const prompt = `You are a Hebrew language expert. For the Hebrew word "${word.hebrew}" (${word.transliteration}, meaning: "${word.en}"), return ONLY a JSON object (no markdown, no explanation) with this exact structure:
+{
+  "usage": "2-3 sentences in English on how this word is actually used in modern spoken and written Israeli Hebrew",
+  "collocations": ["3-5 common word pairings or set phrases using this word, in Hebrew with nikud"],
+  "register": "one of: Formal, Colloquial, Both — with a short note on when to use which",
+  "frequency": "one of: Very common, Common, Moderate, Rare — in contemporary Hebrew"
+}`;
+
+  const res = await fetch("/api/lookup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: 500,
+      messages: [{ role: "user", content: prompt }]
+    })
+  });
+  const data = await res.json();
+  const text = data.content?.find(b => b.type === "text")?.text || "";
+  const clean = text.replace(/```json|```/g, "").trim();
+  return JSON.parse(clean);
+}
+
+// ── AI: related words sharing a root or mishkal ──────────────────────────────
+async function lookupRelatedWords(word) {
+  const basis = word.root && word.root !== "—" ? `root (שורש) ${word.root}` : `mishkal (pattern) ${word.mishkal}`;
+  const prompt = `You are a Hebrew language expert. List other common, real Hebrew words that share the same ${basis} as "${word.hebrew}". Return ONLY a JSON array (no markdown, no explanation), maximum 6 items, each shaped like: {"hebrew": "word with nikud", "transliteration": "romanized pronunciation", "en": "short English gloss"}. Do not include "${word.hebrew}" itself. If you can't find any real related words, return [].`;
+
+  const res = await fetch("/api/lookup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: 600,
+      messages: [{ role: "user", content: prompt }]
+    })
+  });
+  const data = await res.json();
   const text = data.content?.find(b => b.type === "text")?.text || "";
   const clean = text.replace(/```json|```/g, "").trim();
   return JSON.parse(clean);
@@ -231,9 +284,50 @@ const StarIcon = ({ filled }) => (
 );
 
 // ── Word Card Component ───────────────────────────────────────────────────────
-function WordCard({ word, dark, onConfidence, confidence }) {
+function WordCard({ word, dark, onConfidence, confidence, onUpdateWord, onFilterRoot, onFilterMishkal, onRelatedWordClick, isFocused }) {
   const [lang, setLang] = useState("en");
   const [showConj, setShowConj] = useState(false);
+  const [showLearnMore, setShowLearnMore] = useState(false);
+  const [learnMoreLoading, setLearnMoreLoading] = useState(false);
+  const [relatedLoading, setRelatedLoading] = useState(false);
+  const [relatedError, setRelatedError] = useState(false);
+
+  const hasRootOrMishkal = (word.root && word.root !== "—") || (word.mishkal && word.mishkal !== "—");
+
+  async function handleLearnMore() {
+    setShowLearnMore(v => !v);
+    if (word.learnMore || learnMoreLoading) return;
+    setLearnMoreLoading(true);
+    try {
+      const info = await lookupLearnMore(word);
+      onUpdateWord?.(word.id, { learnMore: info });
+    } catch {
+      onUpdateWord?.(word.id, { learnMore: { usage: "Couldn't load this right now — try again.", collocations: [], register: "", frequency: "" } });
+    }
+    setLearnMoreLoading(false);
+  }
+
+  async function handleShowRelated() {
+    if (word.relatedWords || relatedLoading) return;
+    setRelatedLoading(true);
+    setRelatedError(false);
+    try {
+      const related = await lookupRelatedWords(word);
+      onUpdateWord?.(word.id, { relatedWords: related });
+    } catch {
+      setRelatedError(true);
+    }
+    setRelatedLoading(false);
+  }
+
+  // Auto-show related words on the focused (search result) card only —
+  // not for every card in a long Word Bank list.
+  useEffect(() => {
+    if (isFocused && hasRootOrMishkal && !word.relatedWords) {
+      handleShowRelated();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [word.id, isFocused]);
 
   const conf = confidence || "none";
   const confColors = {
@@ -271,10 +365,25 @@ function WordCard({ word, dark, onConfidence, confidence }) {
       {/* Metadata row */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center", marginBottom: 20 }}>
         {word.pos && <Chip dark={dark} label={word.pos} />}
-        {word.root !== "—" && <Chip dark={dark} label={`שורש: ${word.root}`} />}
-        {word.binyan !== "—" && <Chip dark={dark} label={`בניין: ${word.binyan}`} accent />}
+        {word.root && word.root !== "—" && (
+          <span onClick={() => onFilterRoot?.(word.root)} style={{ cursor: onFilterRoot ? "pointer" : "default" }} title="Show all words with this root">
+            <Chip dark={dark} label={`שורש: ${word.root}`} />
+          </span>
+        )}
+        {word.binyan && word.binyan !== "—" && <Chip dark={dark} label={`בניין: ${word.binyan}`} accent />}
+        {word.mishkal && word.mishkal !== "—" && (
+          <span onClick={() => onFilterMishkal?.(word.mishkal)} style={{ cursor: onFilterMishkal ? "pointer" : "default" }} title="Show all words with this mishkal">
+            <Chip dark={dark} label={`משקל: ${word.mishkal}`} />
+          </span>
+        )}
+        {word.prepositions && word.prepositions !== "—" && <Chip dark={dark} label={word.prepositions} muted />}
         {word.level && <Chip dark={dark} label={`Ulpan ${word.level}`} muted />}
       </div>
+      {word.grammarNote && (
+        <div style={{ textAlign: "center", fontFamily: "'Inter', sans-serif", fontSize: 12, color: dark ? "#7a8a84" : "#8a9490", marginTop: -12, marginBottom: 20, fontStyle: "italic" }}>
+          {word.grammarNote}
+        </div>
+      )}
 
       {/* Lang toggle + definition */}
       <div style={{ textAlign: "center", marginBottom: 24 }}>
@@ -341,6 +450,70 @@ function WordCard({ word, dark, onConfidence, confidence }) {
                   ))}
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Learn More */}
+      <div style={{ marginTop: 14 }}>
+        <button onClick={handleLearnMore} style={{
+          background: "none", border: `1px solid ${dark ? "#2d3d38" : "#d0cdc6"}`,
+          borderRadius: 8, padding: "6px 14px", cursor: "pointer",
+          fontFamily: "'Inter', sans-serif", fontSize: 13,
+          color: dark ? "#6baf96" : "#5b8c7a",
+        }}>
+          📖 {showLearnMore ? "Hide" : "Learn More"} {learnMoreLoading ? "…" : "▾"}
+        </button>
+        {showLearnMore && word.learnMore && (
+          <div style={{ marginTop: 14, fontFamily: "'Inter', sans-serif", fontSize: 13, color: dark ? "#c8c4bc" : "#3a3a3c", lineHeight: 1.6 }}>
+            <div style={{ marginBottom: 10 }}>{word.learnMore.usage}</div>
+            {word.learnMore.collocations?.length > 0 && (
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: dark ? "#4a6b5e" : "#8a9e96", marginBottom: 6 }}>Common collocations</div>
+                {word.learnMore.collocations.map((c, i) => (
+                  <div key={i} style={{ fontFamily: "'Frank Ruhl Libre', serif", fontSize: 16, direction: "rtl" }}>{c}</div>
+                ))}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 16, fontSize: 12, color: dark ? "#7a8a84" : "#5a6a64" }}>
+              {word.learnMore.register && <span>Register: {word.learnMore.register}</span>}
+              {word.learnMore.frequency && <span>Frequency: {word.learnMore.frequency}</span>}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Related words */}
+      {hasRootOrMishkal && (
+        <div style={{ marginTop: 14 }}>
+          {!word.relatedWords && !isFocused && (
+            <button onClick={handleShowRelated} style={{
+              background: "none", border: `1px solid ${dark ? "#2d3d38" : "#d0cdc6"}`,
+              borderRadius: 8, padding: "6px 14px", cursor: "pointer",
+              fontFamily: "'Inter', sans-serif", fontSize: 13,
+              color: dark ? "#6baf96" : "#5b8c7a",
+            }}>
+              🔗 {relatedLoading ? "Loading…" : "Show related words"}
+            </button>
+          )}
+          {isFocused && relatedLoading && !word.relatedWords && (
+            <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 12, color: dark ? "#4a6b5e" : "#8a9e96" }}>Finding related words…</div>
+          )}
+          {relatedError && <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 12, color: "#dc2626" }}>Couldn't load related words.</div>}
+          {word.relatedWords?.length > 0 && (
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: dark ? "#4a6b5e" : "#8a9e96", marginBottom: 8 }}>Related words</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {word.relatedWords.map((r, i) => (
+                  <button key={i} onClick={() => onRelatedWordClick?.(r.hebrew)} style={{
+                    background: dark ? "#1e2c26" : "#eaf3ef", border: "none", borderRadius: 100,
+                    padding: "6px 14px", cursor: onRelatedWordClick ? "pointer" : "default",
+                    fontFamily: "'Frank Ruhl Libre', serif", fontSize: 15, direction: "rtl",
+                    color: dark ? "#6baf96" : "#3d7a66",
+                  }} title={r.en}>{r.hebrew}</button>
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -605,6 +778,8 @@ export default function PretzelBites() {
   const [exercise, setExercise] = useState(false);
   const [filterTag, setFilterTag] = useState(null);
   const [filterConf, setFilterConf] = useState(null);
+  const [filterRoot, setFilterRoot] = useState(null);
+  const [filterMishkal, setFilterMishkal] = useState(null);
   const [toast, setToast] = useState(null);
 
   const { level, progress } = xpToLevel(xp);
@@ -623,14 +798,14 @@ useEffect(() => {
   if (!user) return;
   async function loadData() {
     try {
-      const metaDoc = await getDoc(doc(db, "users", user.uid, "meta", "data"));
+      const metaDoc = await getDoc(doc(db, "users", BANK_UID, "meta", "data"));
       if (metaDoc.exists()) {
         const data = metaDoc.data();
         setXp(data.xp || 0);
         setStreak(data.streak || 0);
         setConfidence(data.confidence || {});
       }
-      const bankSnap = await getDocs(collection(db, "users", user.uid, "wordBank"));
+      const bankSnap = await getDocs(collection(db, "users", BANK_UID, "wordBank"));
       if (!bankSnap.empty) {
         const words = bankSnap.docs.map(d => ({ ...d.data(), id: d.id }));
         setBank(words);
@@ -647,7 +822,7 @@ useEffect(() => {
 
 useEffect(() => {
   if (!loaded || !user) return;
-  setDoc(doc(db, "users", user.uid, "meta", "data"), { xp, streak, confidence });
+  setDoc(doc(db, "users", BANK_UID, "meta", "data"), { xp, streak, confidence });
 }, [xp, streak, confidence, loaded, user]);
 
   const showToast = useCallback((msg) => {
@@ -660,13 +835,14 @@ useEffect(() => {
     showToast(`+${amount} XP 🎉`);
   }, [showToast]);
 
-  async function handleSearch() {
-    if (!search.trim()) return;
+  async function performLookup(term) {
+    if (!term.trim()) return;
+    setTab("search");
     setSearching(true);
     setSearchResult(null);
     setSearchError("");
     try {
-      const word = await lookupWord(search.trim());
+      const word = await lookupWord(term.trim());
       word.id = Date.now();
       setSearchResult(word);
       // Auto-save to bank if not duplicate
@@ -674,7 +850,7 @@ useEffect(() => {
   const exists = b.some(w => w.hebrew === word.hebrew);
   if (!exists) {
     // Save new word to Firebase
-    if (user) setDoc(doc(db, "users", user.uid, "wordBank", String(word.id)), word);
+    if (user) setDoc(doc(db, "users", BANK_UID, "wordBank", String(word.id)), word);
     addXP(5);
     showToast("Word saved to your bank! +5 XP");
     return [word, ...b];
@@ -686,6 +862,33 @@ useEffect(() => {
       setSearchError("Couldn't look up that word. Try again or check your spelling.");
     }
     setSearching(false);
+  }
+
+  function handleSearch() {
+    performLookup(search);
+  }
+
+  function handleRelatedWordClick(hebrew) {
+    setSearch(hebrew);
+    performLookup(hebrew);
+  }
+
+  const handleUpdateWord = useCallback((id, patch) => {
+    setBank(b => b.map(w => (w.id === id ? { ...w, ...patch } : w)));
+    setSearchResult(r => (r && r.id === id ? { ...r, ...patch } : r));
+    if (user) setDoc(doc(db, "users", BANK_UID, "wordBank", String(id)), patch, { merge: true });
+  }, [user]);
+
+  function goFilterRoot(root) {
+    setTab("bank");
+    setFilterMishkal(null);
+    setFilterRoot(r => (r === root ? null : root));
+  }
+
+  function goFilterMishkal(mishkal) {
+    setTab("bank");
+    setFilterRoot(null);
+    setFilterMishkal(m => (m === mishkal ? null : mishkal));
   }
 
   const handleConfidence = useCallback((id, val) => {
@@ -701,6 +904,8 @@ useEffect(() => {
   const filteredBank = bank.filter(w => {
     if (filterTag && !w.tags?.includes(filterTag)) return false;
     if (filterConf && (confidence[w.id] || "none") !== filterConf) return false;
+    if (filterRoot && w.root !== filterRoot) return false;
+    if (filterMishkal && w.mishkal !== filterMishkal) return false;
     return true;
   });
 
@@ -877,7 +1082,19 @@ useEffect(() => {
               </div>
             )}
             {searchError && <div style={{ color: "#dc2626", fontFamily: "'Inter', sans-serif", fontSize: 14, marginBottom: 16 }}>{searchError}</div>}
-            {searchResult && <WordCard word={searchResult} dark={dark} onConfidence={handleConfidence} confidence={confidence[searchResult.id]} />}
+            {searchResult && (
+              <WordCard
+                word={searchResult}
+                dark={dark}
+                onConfidence={handleConfidence}
+                confidence={confidence[searchResult.id]}
+                onUpdateWord={handleUpdateWord}
+                onFilterRoot={goFilterRoot}
+                onFilterMishkal={goFilterMishkal}
+                onRelatedWordClick={handleRelatedWordClick}
+                isFocused
+              />
+            )}
 
             {!searchResult && !searching && (
               <div style={{ textAlign: "center", padding: "40px 0" }}>
@@ -903,6 +1120,14 @@ useEffect(() => {
               ))}
             </div>
 
+            {(filterRoot || filterMishkal) && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20 }}>
+                <span style={{ fontFamily: "'Inter', sans-serif", fontSize: 12, color: subtle }}>Filtering by {filterRoot ? "root" : "mishkal"}:</span>
+                <span style={{ fontFamily: "'Frank Ruhl Libre', serif", fontSize: 16, direction: "rtl", color: sage }}>{filterRoot || filterMishkal}</span>
+                <button onClick={() => { setFilterRoot(null); setFilterMishkal(null); }} style={{ background: "none", border: "none", cursor: "pointer", color: subtle, fontSize: 13 }}>✕ clear</button>
+              </div>
+            )}
+
             {filteredBank.length === 0 && (
               <div style={{ textAlign: "center", padding: 48, color: subtle, fontFamily: "'Inter', sans-serif" }}>No words match this filter.</div>
             )}
@@ -922,7 +1147,17 @@ useEffect(() => {
             </div>
 
             {filteredBank.map(w => (
-              <WordCard key={w.id} word={w} dark={dark} onConfidence={handleConfidence} confidence={confidence[w.id]} />
+              <WordCard
+                key={w.id}
+                word={w}
+                dark={dark}
+                onConfidence={handleConfidence}
+                confidence={confidence[w.id]}
+                onUpdateWord={handleUpdateWord}
+                onFilterRoot={goFilterRoot}
+                onFilterMishkal={goFilterMishkal}
+                onRelatedWordClick={handleRelatedWordClick}
+              />
             ))}
           </div>
         )}
