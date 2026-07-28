@@ -255,6 +255,12 @@ const SearchIcon = () => (
   </svg>
 );
 
+const XIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+  </svg>
+);
+
 const SunIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <circle cx="12" cy="12" r="5"/>
@@ -1059,13 +1065,22 @@ useEffect(() => {
                 onKeyDown={e => e.key === "Enter" && handleSearch()}
                 placeholder="Search in Hebrew or English… e.g. לְהַבִּין or understand"
                 style={{
-                  width: "100%", padding: "16px 52px 16px 18px", borderRadius: 14,
+                  width: "100%", padding: "16px 92px 16px 18px", borderRadius: 14,
                   border: `1.5px solid ${border}`, background: cardBg,
                   fontFamily: "'Inter', sans-serif", fontSize: 16,
                   color: text, outline: "none", boxSizing: "border-box",
                   direction: /[\u0590-\u05FF]/.test(search) ? "rtl" : "ltr",
                 }}
               />
+              {search && (
+                <button onClick={() => { setSearch(""); setSearchResult(null); setSearchError(""); }} style={{
+                  position: "absolute", right: 54, top: "50%", transform: "translateY(-50%)",
+                  background: "transparent", border: "none", borderRadius: 10, padding: "8px",
+                  cursor: "pointer", color: subtle, display: "flex", alignItems: "center",
+                }}>
+                  <XIcon />
+                </button>
+              )}
               <button onClick={handleSearch} style={{
                 position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)",
                 background: sage, border: "none", borderRadius: 10, padding: "8px 10px",
