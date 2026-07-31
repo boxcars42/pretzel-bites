@@ -787,6 +787,11 @@ export default function PretzelBites() {
   const [filterRoot, setFilterRoot] = useState(null);
   const [filterMishkal, setFilterMishkal] = useState(null);
   const [toast, setToast] = useState(null);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkText, setBulkText] = useState("");
+  const [bulkAdding, setBulkAdding] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0 });
+  const [bulkSummary, setBulkSummary] = useState("");
 
   const { level, progress } = xpToLevel(xp);
   
@@ -873,6 +878,44 @@ useEffect(() => {
 
   function handleSearch() {
     performLookup(search);
+  }
+
+  async function handleBulkAdd() {
+    const terms = [...new Set(
+      bulkText.split(/[\n,;]+/).map(s => s.trim()).filter(Boolean)
+    )];
+    if (terms.length === 0) return;
+    setBulkAdding(true);
+    setBulkSummary("");
+    setBulkProgress({ current: 0, total: terms.length });
+
+    let added = 0, duplicates = 0, failed = 0;
+    for (let i = 0; i < terms.length; i++) {
+      setBulkProgress({ current: i + 1, total: terms.length });
+      try {
+        const word = await lookupWord(terms[i]);
+        word.id = Date.now() + i;
+        if (!Array.isArray(word.examples)) word.examples = [];
+        let isDuplicate = false;
+        setBank(b => {
+          if (b.some(w => w.hebrew === word.hebrew)) { isDuplicate = true; return b; }
+          if (user) setDoc(doc(db, "users", BANK_UID, "wordBank", String(word.id)), word);
+          return [word, ...b];
+        });
+        if (isDuplicate) duplicates++; else added++;
+      } catch {
+        failed++;
+      }
+    }
+
+    if (added > 0) setXp(x => x + 5 * added);
+    const parts = [`${added} word${added === 1 ? "" : "s"} added`];
+    if (duplicates > 0) parts.push(`${duplicates} already in the bank`);
+    if (failed > 0) parts.push(`${failed} couldn't be looked up`);
+    setBulkSummary(parts.join(" · "));
+    setBulkText("");
+    setBulkAdding(false);
+    showToast(added > 0 ? `+${5 * added} XP 🎉` : "No new words added");
   }
 
   function handleRelatedWordClick(hebrew) {
@@ -1089,7 +1132,52 @@ useEffect(() => {
                 <SearchIcon />
               </button>
             </div>
-            <div style={{ fontSize: 12, color: subtle, marginBottom: 24 }}>Every word you look up is automatically saved to your bank.</div>
+            <div style={{ fontSize: 12, color: subtle, marginBottom: 16 }}>Every word you look up is automatically saved to your bank.</div>
+
+            <div style={{ marginBottom: 24 }}>
+              <button onClick={() => setBulkOpen(o => !o)} style={{
+                background: "none", border: "none", padding: 0, cursor: "pointer",
+                color: sage, fontFamily: "'Inter', sans-serif", fontSize: 13,
+                fontWeight: 600, textDecoration: "underline",
+              }}>
+                {bulkOpen ? "Hide bulk add" : "Add multiple words at once"}
+              </button>
+
+              {bulkOpen && (
+                <div style={{ marginTop: 12 }}>
+                  <textarea
+                    value={bulkText}
+                    onChange={e => setBulkText(e.target.value)}
+                    placeholder="Paste words in Hebrew, English or Russian — one per line, or separated by commas…"
+                    rows={6}
+                    disabled={bulkAdding}
+                    style={{
+                      width: "100%", padding: 14, borderRadius: 14,
+                      border: `1.5px solid ${border}`, background: cardBg,
+                      fontFamily: "'Inter', sans-serif", fontSize: 14,
+                      color: text, outline: "none", boxSizing: "border-box", resize: "vertical",
+                    }}
+                  />
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 8, flexWrap: "wrap" }}>
+                    <button
+                      onClick={handleBulkAdd}
+                      disabled={bulkAdding || !bulkText.trim()}
+                      style={{
+                        background: sage, color: "#ffffff", border: "none", borderRadius: 10,
+                        padding: "9px 16px", cursor: bulkAdding || !bulkText.trim() ? "default" : "pointer",
+                        fontFamily: "'Inter', sans-serif", fontWeight: 700, fontSize: 13,
+                        opacity: bulkAdding || !bulkText.trim() ? 0.6 : 1,
+                      }}
+                    >
+                      {bulkAdding ? `Adding ${bulkProgress.current}/${bulkProgress.total}…` : "Add all words"}
+                    </button>
+                    {bulkSummary && !bulkAdding && (
+                      <div style={{ fontSize: 13, color: subtle, fontFamily: "'Inter', sans-serif" }}>{bulkSummary}</div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
 
             {searching && (
               <div style={{ textAlign: "center", padding: 48 }}>
