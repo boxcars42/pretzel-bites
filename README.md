@@ -17,6 +17,7 @@ This app solves that by combining an AI-powered Hebrew dictionary with a persona
 - **AI-Powered Word Lookup** — Search any Hebrew or English word and get a full entry: definition in English and Russian, root (שורש), binyan (בניין), part of speech, transliteration, and 3 real-life example sentences
 - **Bulk Word Add** — Paste a list of words in Hebrew, English, or Russian (one per line, or comma/semicolon separated) and add them all at once — each is looked up and saved individually
 - **Auto-Save Word Bank** — Every word you look up is automatically saved to your personal bank, no manual saving needed
+- **Word Bank Search** — Instantly filter your saved words by Hebrew, transliteration, English, Russian, or root — combines with the confidence/tag/root/mishkal filters, and matches regardless of nikud
 - **Daily Practice Sessions** — Three session lengths (קצר / בינוני / ארוך) with three exercise types: flashcards, multiple choice, and fill in the blank
 - **Confidence Tracking** — Mark each word as Still Learning 🔴, Getting There 🟡, or Mastered 🟢
 - **XP & Progression System** — Earn points for every lookup, completed session, and mastered word. Level up from Ulpan Alef all the way to בן/בת ארץ

@@ -149,6 +149,12 @@ function xpToLevel(xp) {
   return { level: LEVELS[lvl], progress: (xp % XP_PER_LEVEL) / XP_PER_LEVEL * 100, xp };
 }
 
+// Hebrew nikud (vowel points) and cantillation marks so search matches
+// regardless of whether the stored word or the query has them.
+function stripNikud(str) {
+  return str.normalize("NFD").replace(/[֑-ׇ]/g, "");
+}
+
 // ── AI lookup via Anthropic API ──────────────────────────────────────────────
 async function lookupWord(word) {
   const prompt = `You are a Hebrew language expert. The user looked up the Hebrew word or phrase: "${word}".
@@ -786,6 +792,7 @@ export default function PretzelBites() {
   const [filterConf, setFilterConf] = useState(null);
   const [filterRoot, setFilterRoot] = useState(null);
   const [filterMishkal, setFilterMishkal] = useState(null);
+  const [bankSearch, setBankSearch] = useState("");
   const [toast, setToast] = useState(null);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkText, setBulkText] = useState("");
@@ -951,11 +958,18 @@ useEffect(() => {
   }, [addXP]);
 
   // Filtered bank
+  const bankSearchNorm = stripNikud(bankSearch.trim().toLowerCase());
   const filteredBank = bank.filter(w => {
     if (filterTag && !w.tags?.includes(filterTag)) return false;
     if (filterConf && (confidence[w.id] || "none") !== filterConf) return false;
     if (filterRoot && w.root !== filterRoot) return false;
     if (filterMishkal && w.mishkal !== filterMishkal) return false;
+    if (bankSearchNorm) {
+      const haystack = stripNikud(
+        [w.hebrew, w.transliteration, w.en, w.ru, w.root].filter(Boolean).join(" ").toLowerCase()
+      );
+      if (!haystack.includes(bankSearchNorm)) return false;
+    }
     return true;
   });
 
@@ -1212,6 +1226,38 @@ useEffect(() => {
         {/* Bank tab */}
         {tab === "bank" && (
           <div>
+            {/* Search within bank */}
+            <div style={{ position: "relative", marginBottom: 16 }}>
+              <input
+                value={bankSearch}
+                onChange={e => setBankSearch(e.target.value)}
+                placeholder="Search your bank… Hebrew, English, Russian or root"
+                style={{
+                  width: "100%", padding: "12px 40px 12px 16px", borderRadius: 12,
+                  border: `1.5px solid ${border}`, background: cardBg,
+                  fontFamily: "'Inter', sans-serif", fontSize: 14,
+                  color: text, outline: "none", boxSizing: "border-box",
+                  direction: /[֐-׿]/.test(bankSearch) ? "rtl" : "ltr",
+                }}
+              />
+              {bankSearch ? (
+                <button onClick={() => setBankSearch("")} style={{
+                  position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",
+                  background: "transparent", border: "none", borderRadius: 10, padding: "6px",
+                  cursor: "pointer", color: subtle, display: "flex", alignItems: "center",
+                }}>
+                  <XIcon />
+                </button>
+              ) : (
+                <span style={{
+                  position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)",
+                  color: subtle, display: "flex", alignItems: "center", pointerEvents: "none",
+                }}>
+                  <SearchIcon />
+                </span>
+              )}
+            </div>
+
             {/* Filters */}
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>
               <button onClick={() => setFilterConf(null)} style={{ padding: "5px 14px", borderRadius: 100, border: `1px solid ${filterConf === null && !filterTag ? sage : border}`, background: filterConf === null && !filterTag ? (dark ? "#1e3828" : "#eaf3ef") : "transparent", cursor: "pointer", fontFamily: "'Inter', sans-serif", fontSize: 13, color: filterConf === null && !filterTag ? sage : subtle }}>All</button>
